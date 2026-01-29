@@ -698,12 +698,18 @@
       card.style.opacity = card.disabled ? "0.55" : "1";
 
       card.onclick = async () => {
-        try {
-          await sb.rpc("pass_to_color", { p_code: roomCode, p_target_color: cs.color });
-        } catch (e) {
+         try {
+          const { error } = await sb.rpc("pass_to_color", { p_code: roomCode, p_target_color: cs.color });
+          if (error) throw error;
+
+          // azonnali frissítés (Realtime nélkül is)
+          await loadAll();
+          render();
+         } catch (e) {
           alertError(e);
-        }
+         }
       };
+
 
       grid.appendChild(card);
     }
@@ -851,13 +857,24 @@
 
   // ========= TICK =========
   function startTick() {
-    setInterval(() => {
-      if (!roomState) return;
-      if (roomState.combat_active || (roomState.active_player_id && roomState.active_started_at)) {
-        render(); // simple, safe
-      }
-    }, 250);
-  }
+     // 1) folyamatos UI frissítés (hogy a másodpercek “folyjanak”)
+     setInterval(() => {
+       if (!roomState) return;
+       render();
+     }, 250);
+   
+     // 2) állapot szinkron (ha realtime nem működik / új játékos jön)
+     setInterval(async () => {
+       try {
+         if (!roomId) return;
+         await loadAll();
+       } catch (e) {
+         // ne zavarja a játékot, csak logoljuk
+         console.warn("poll loadAll failed", e);
+       }
+     }, 1500);
+   }
+
 
   // ========= BOOT =========
   (async () => {
