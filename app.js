@@ -321,54 +321,51 @@
       }
     };
 
-    // DM panel (a te index.html ID-jaival)
-if (IS_DM) {
-  // a te HTML-edben ez hidden class-szal van elrejtve
-  const dmCard = document.getElementById("dmCard");
-  if (dmCard) dmCard.classList.remove("hidden");
-
-  const defaultInp = document.getElementById("defaultTimeInput");
-  const btnNewPhase = document.getElementById("btnNewPhase");
-  const overrideGrid = document.getElementById("overrideGrid");
-  const dmMsg = document.getElementById("dmMsg");
-
-  const setMsg = (t) => { if (dmMsg) dmMsg.textContent = t || ""; };
-
-  if (btnNewPhase) {
-    btnNewPhase.onclick = async () => {
-      try {
-        setMsg("");
-
-        const def = parseMMSS(defaultInp?.value);
-        if (def == null) throw new Error("Érvénytelen alapidő. Formátum: mm:ss (pl. 02:00).");
-
-        // overrides a te overrideGrid-edből: inputok, amiknek data-color attribútuma van
-        // (ha most nem ilyenek, akkor is működik: csak üres overrides lesz)
-        const overrides = {};
-        if (overrideGrid) {
-          for (const inp of overrideGrid.querySelectorAll("input[data-color]")) {
-            const color = String(inp.getAttribute("data-color") || "").trim();
-            const sec = parseMMSS(inp.value);
-            if (color && sec != null) overrides[color] = String(sec);
-          }
-        }
-
-        await sb.rpc("dm_new_phase", {
-          p_code: roomCode,
-          p_dm_token: DM_TOKEN,
-          p_default_seconds: def,
-          p_overrides: overrides
-        });
-
-        setMsg("Új fázis elindítva.");
-        defaultInp?.blur();
-      } catch (e) {
-        setMsg(e?.message || String(e));
-        alertError(e);
-      }
-    };
-  }
-}
+    if (IS_DM) {
+     dmWrap.classList.remove("hidden");
+     dmWrap.style.display = "block";
+   
+     const dmDefault =
+       dmWrap.querySelector("#defaultTimeInput") || dmWrap.querySelector("#dmDefault");
+     const dmApply =
+       dmWrap.querySelector("#btnNewPhase") || dmWrap.querySelector("#dmApply");
+   
+     dmApply.onclick = async () => {
+       try {
+         const def = parseMMSS(dmDefault.value);
+         if (def == null) throw new Error("Érvénytelen alapidő. Formátum: mm:ss (pl. 02:00).");
+   
+         // overrides from index.html grid (overrideGrid) OR generated dmOverrides
+         const overrides = {};
+         const ovWrap =
+           dmWrap.querySelector("#overrideGrid") || dmWrap.querySelector("#dmOverrides");
+   
+         if (ovWrap) {
+           for (const card of ovWrap.querySelectorAll("[data-color]")) {
+             const color = card.getAttribute("data-color");
+             const inp = card.querySelector("input");
+             const sec = parseMMSS(inp?.value);
+             if (sec != null) overrides[color] = String(sec);
+           }
+         }
+   
+         await sb.rpc("dm_new_phase", {
+           p_code: roomCode,
+           p_dm_token: DM_TOKEN,
+           p_default_seconds: def,
+           p_overrides: overrides
+         });
+   
+         // optional UI message if HTML has dmMsg
+         const dmMsg = dmWrap.querySelector("#dmMsg");
+         if (dmMsg) dmMsg.textContent = "Új fázis elindítva.";
+   
+         dmDefault.blur();
+       } catch (e) {
+         alertError(e);
+       }
+     };
+   } 
 
 
     // Create/Join buttons from your header
