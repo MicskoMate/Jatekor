@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Játékóra</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Játékóra</div>
+    <div class="roomline">
+      <span id="roomLabel" class="muted"></span>
+      <button id="btnCreateRoom" class="btn">Create room</button>
+      <button id="btnCopyPlayer" class="btn hidden">Copy Player link</button>
+      <button id="btnCopyDM" class="btn hidden">Copy DM link</button>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section id="joinCard" class="card hidden">
+      <h2>Csatlakozás</h2>
+      <div class="row">
+        <label>Szoba kód</label>
+        <input id="roomCodeInput" placeholder="pl. AB12CD" maxlength="12" />
+        <button id="btnJoin" class="btn primary">Belépés</button>
+      </div>
+      <p class="muted small">
+        Ha DM előre lezárt színt, ideiglenesen kérhet szín-kódot.
+      </p>
+      <div class="row">
+        <label>Szín (opcionális)</label>
+        <input id="colorInput" placeholder="red / blue / ..." />
+        <label>Join kód (opcionális)</label>
+        <input id="joinCodeInput" placeholder="DM-től kapott kód" />
+      </div>
+      <div id="joinMsg" class="msg"></div>
+    </section>
+
+    <section id="dmCard" class="card hidden">
+      <h2>DM panel</h2>
+
+      <div class="row">
+        <label>Új fázis – alapidő</label>
+        <input id="defaultTimeInput" placeholder="mm:ss (pl. 02:00)" />
+        <button id="btnNewPhase" class="btn primary">Új fázis indítása</button>
+      </div>
+
+      <details>
+        <summary>Játékosonkénti eltérő idők (szín → mm:ss)</summary>
+        <div class="grid" id="overrideGrid"></div>
+      </details>
+
+      <details>
+        <summary>Színek előzetes kiosztása (lock + join kód)</summary>
+        <div id="slotsGrid" class="grid"></div>
+      </details>
+
+      <div id="dmMsg" class="msg"></div>
+    </section>
+
+    <section class="card">
+      <div class="row between">
+        <div>
+          <div class="muted small">Fázis</div>
+          <div id="phaseLabel" class="big">–</div>
+        </div>
+
+        <div class="row">
+          <button id="btnCombat" class="btn danger" disabled>HARC</button>
+        </div>
+      </div>
+
+      <div id="board" class="board"></div>
+      <div id="status" class="muted small"></div>
+    </section>
+  </main>
+
+  <div id="combatOverlay" class="overlay hidden" role="dialog" aria-modal="true">
+    <div class="overlayBox">
+      <div class="overlayTitle">HARC</div>
+      <div id="combatTimer" class="overlayTimer">01:00</div>
+      <div id="combatSub" class="muted"></div>
+
+      <div id="combatPick" class="combatPick hidden">
+        <div class="muted small">Válassz célt:</div>
+        <div id="combatTargets" class="board compact"></div>
+      </div>
+
+      <div class="row between">
+        <button id="btnCombatEnd" class="btn primary" disabled>VÉGE</button>
+        <button id="btnOverlayClose" class="btn">Elrejt</button>
+      </div>
+      <div class="muted small">
+        1:00 után is kézzel kell megnyomni a VÉGE gombot.
+      </div>
+      <div id="combatMsg" class="msg"></div>
+    </div>
+  </div>
+
+  <!-- Supabase JS (UMD) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
