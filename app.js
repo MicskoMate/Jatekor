@@ -321,40 +321,55 @@
       }
     };
 
-    // DM panel
-    if (IS_DM) {
-      dmWrap.style.display = "block";
-      const dmDefault = dmWrap.querySelector("#dmDefault");
-      const dmApply = dmWrap.querySelector("#dmApply");
+    // DM panel (a te index.html ID-jaival)
+if (IS_DM) {
+  // a te HTML-edben ez hidden class-szal van elrejtve
+  const dmCard = document.getElementById("dmCard");
+  if (dmCard) dmCard.classList.remove("hidden");
 
-      dmApply.onclick = async () => {
-        try {
-          const def = parseMMSS(dmDefault.value);
-          if (def == null) throw new Error("Érvénytelen alapidő. Formátum: mm:ss (pl. 02:00).");
+  const defaultInp = document.getElementById("defaultTimeInput");
+  const btnNewPhase = document.getElementById("btnNewPhase");
+  const overrideGrid = document.getElementById("overrideGrid");
+  const dmMsg = document.getElementById("dmMsg");
 
-          // overrides: { "red": "180", "blue": "60" } as JSONB
-          const overrides = {};
-          const ovWrap = dmWrap.querySelector("#dmOverrides");
-          for (const card of ovWrap.querySelectorAll("[data-color]")) {
-            const color = card.getAttribute("data-color");
-            const inp = card.querySelector("input");
+  const setMsg = (t) => { if (dmMsg) dmMsg.textContent = t || ""; };
+
+  if (btnNewPhase) {
+    btnNewPhase.onclick = async () => {
+      try {
+        setMsg("");
+
+        const def = parseMMSS(defaultInp?.value);
+        if (def == null) throw new Error("Érvénytelen alapidő. Formátum: mm:ss (pl. 02:00).");
+
+        // overrides a te overrideGrid-edből: inputok, amiknek data-color attribútuma van
+        // (ha most nem ilyenek, akkor is működik: csak üres overrides lesz)
+        const overrides = {};
+        if (overrideGrid) {
+          for (const inp of overrideGrid.querySelectorAll("input[data-color]")) {
+            const color = String(inp.getAttribute("data-color") || "").trim();
             const sec = parseMMSS(inp.value);
-            if (sec != null) overrides[color] = String(sec);
+            if (color && sec != null) overrides[color] = String(sec);
           }
-
-          await sb.rpc("dm_new_phase", {
-            p_code: roomCode,
-            p_dm_token: DM_TOKEN,
-            p_default_seconds: def,
-            p_overrides: overrides
-          });
-
-          dmDefault.blur();
-        } catch (e) {
-          alertError(e);
         }
-      };
-    }
+
+        await sb.rpc("dm_new_phase", {
+          p_code: roomCode,
+          p_dm_token: DM_TOKEN,
+          p_default_seconds: def,
+          p_overrides: overrides
+        });
+
+        setMsg("Új fázis elindítva.");
+        defaultInp?.blur();
+      } catch (e) {
+        setMsg(e?.message || String(e));
+        alertError(e);
+      }
+    };
+  }
+}
+
 
     // Create/Join buttons from your header
     if (el.btnCreateRoom) {
