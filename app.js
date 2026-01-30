@@ -23,20 +23,51 @@
   const DM_TOKEN = (url.searchParams.get("dm") || "").trim();
   const IS_DM = !!DM_TOKEN;
 
-  // ========= BASIC GUARDS =========
-  if (!window.supabase) {
-    fatal("Hiányzik a supabase-js script az index.html-ből.");
-    return;
-  }
-  if (SUPABASE_URL.includes("PASTE_") || SUPABASE_ANON_KEY.includes("PASTE_")) {
-    fatal("Add meg az SUPABASE_URL és SUPABASE_ANON_KEY értékeket az app.js-ben.");
-    return;
-  }
-
-  const { createClient } = window.supabase;
-  const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
-  });
+  // ===== Instance lock: ugyanazon eszközön egy szobában csak 1 példány joinoljon =====
+   const TAB_ID_KEY = "jr:tab_id";
+   
+   function getTabId() {
+     let id = sessionStorage.getItem(TAB_ID_KEY);
+     if (id) return id;
+     const bytes = new Uint8Array(8);
+     crypto.getRandomValues(bytes);
+     id = Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+     sessionStorage.setItem(TAB_ID_KEY, id);
+     return id;
+   }
+   
+   const TAB_ID = getTabId();
+   
+   function roomLockKey(code) {
+     return `jr:room_lock:${code}`;
+   }
+   
+   function acquireRoomLock(code) {
+     const key = roomLockKey(code);
+     const current = localStorage.getItem(key);
+   
+     // Ha nincs lock, vagy mi vagyunk, foglaljuk
+     if (!current || current === TAB_ID) {
+       localStorage.setItem(key, TAB_ID);
+       return true;
+     }
+     return false;
+   }
+   
+     // ========= BASIC GUARDS =========
+     if (!window.supabase) {
+       fatal("Hiányzik a supabase-js script az index.html-ből.");
+       return;
+     }
+     if (SUPABASE_URL.includes("PASTE_") || SUPABASE_ANON_KEY.includes("PASTE_")) {
+       fatal("Add meg az SUPABASE_URL és SUPABASE_ANON_KEY értékeket az app.js-ben.");
+       return;
+     }
+   
+     const { createClient } = window.supabase;
+     const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
+     });
 
   // ========= STATE =========
   let session = null;
@@ -489,6 +520,14 @@
   }
 
   async function joinRoomAuto() {
+     // Ha ezen az eszközön már egy másik példány "fogja" ezt a szobát,
+     // akkor ne joinoljunk új játékosként.
+     if (!acquireRoomLock(roomCode)) {
+       showRoomLabel(`Szoba: ${roomCode} • Már megnyitva ezen a telefonon`);
+       alert("Ez a szoba már meg van nyitva ezen a telefonon egy másik appban/tabban. Itt nem csatlakozom új játékosként.");
+       return;
+     }
+
      // ---- JOIN GUARD: egy böngészőben / szobában csak egyszer joinoljunk
      const joinKey = `jr:joined:${roomCode}`;
      if (localStorage.getItem(joinKey) === "1") {
