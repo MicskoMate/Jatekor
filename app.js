@@ -414,6 +414,8 @@
           if (el.btnCopyDM) el.btnCopyDM.onclick = () => copyToClipboard(dmLink);
 
           // Navigate to DM link automatically
+          // új szoba: töröljük a join-flaget, hogy az új szobába majd joinolhassunk
+          try { localStorage.removeItem(`jr:joined:${roomCode}`); } catch {}
           window.location.href = dmLink;
         } catch (e) {
           alertError(e);
@@ -487,17 +489,25 @@
   }
 
   async function joinRoomAuto() {
-    const { data, error } = await sb.rpc("join_room", {
-      p_code: roomCode,
-      p_color: null,
-      p_join_code: null
-    });
-    if (error) throw error;
-    const row = data?.[0];
-    if (!row) throw new Error("join_room nem adott vissza player adatot.");
-    // row: {player_id, color, room_id}
-    // myPlayer will be loaded by selecting players
-  }
+     // ---- JOIN GUARD: egy böngészőben / szobában csak egyszer joinoljunk
+     const joinKey = `jr:joined:${roomCode}`;
+     if (localStorage.getItem(joinKey) === "1") {
+       return; // már csatlakoztunk ebben a böngészőben ehhez a szobához
+     }
+   
+     const { data, error } = await sb.rpc("join_room", {
+       p_code: roomCode,
+       p_color: null,
+       p_join_code: null
+     });
+     if (error) throw error;
+   
+     const row = data?.[0];
+     if (!row) throw new Error("join_room nem adott vissza player adatot.");
+   
+     // jelöljük, hogy ebben a böngészőben már joinoltunk ehhez a szobához
+     localStorage.setItem(joinKey, "1");
+   }
 
   async function loadAll() {
     // color_slots
