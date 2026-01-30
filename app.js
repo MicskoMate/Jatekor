@@ -49,7 +49,13 @@
   let players = [];    // [{id,room_id,user_id,color,created_at}]
   let roomState = null; // row from room_state
   let playerStates = []; // [{room_id,player_id,phase,base_seconds,spent_seconds}]
+  let DM_INPUT_ACTIVE = false;
   let myPlayer = null; // player row
+  // DM egyéni idők (szín -> másodperc vagy null)
+  const dmOverrideDraft = {};
+  const dmNameDraft = {}; // { color: "név" }
+
+
 
   let chPlayers = null;
   let chRoomState = null;
@@ -189,15 +195,17 @@
   }
 
   function canClickColor(targetColor) {
-    if (!myPlayer || !roomState) return false;
-    if (roomState.combat_active) return false;
+  if (!myPlayer || !roomState) return false;
+  if (roomState.combat_active) return false;
 
-    // if no active running: only start own
-    if (!roomState.active_player_id || !roomState.active_started_at) {
-      return targetColor === myPlayer.color;
-    }
-    // if running: only active player can pass (to anyone)
-    return roomState.active_player_id === myPlayer.id;
+  // ha nincs futó timer: csak a sajátodat indíthatod
+  if (!roomState.active_player_id || !roomState.active_started_at) {
+    return targetColor === myPlayer.color;
+  }
+
+  // ha fut: csak az aktív adhatja át, de saját magának ne
+  if (roomState.active_player_id !== myPlayer.id) return false;
+  return targetColor !== myPlayer.color;
   }
 
   function canStartCombat() {
@@ -228,7 +236,6 @@
           </div>
           <div style="display:flex;gap:8px;align-items:center;">
             <button id="btnCombat" class="btn">HARC</button>
-            <button id="btnStop" class="btn">STOP</button>
           </div>
         </div>
         <div id="grid" style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;"></div>
@@ -236,32 +243,38 @@
       ui.mainWrap.appendChild(gridWrap);
     }
 
+        // DM panel: ha van a HTML-ben (#dmCard), azt használjuk
     if (!dmWrap) {
-      dmWrap = document.createElement("section");
-      dmWrap.className = "card";
-      dmWrap.style.marginTop = "12px";
-      dmWrap.style.display = "none";
-      dmWrap.innerHTML = `
-        <div style="font-weight:800;">DM</div>
-        <div style="opacity:.7;font-size:12px;margin-bottom:10px;">Új fázis / idők beállítása + színek előzetes zárolása</div>
+      const existingDm = document.getElementById("dmCard");
+      if (existingDm) {
+        dmWrap = existingDm;
+      } else {
+        // fallback (ha valaki olyan HTML-lel futtatja, amiben nincs dmCard)
+        dmWrap = document.createElement("section");
+        dmWrap.className = "card";
+        dmWrap.style.marginTop = "12px";
+        dmWrap.style.display = "none";
+        dmWrap.innerHTML = `
+          <div style="font-weight:800;">DM</div>
+          <div style="opacity:.7;font-size:12px;margin-bottom:10px;">Új fázis / idők beállítása + színek előzetes zárolása</div>
 
-        <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;">
-          <input id="dmDefault" placeholder="Alapidő (mm:ss) pl. 02:00" />
-          <button id="dmApply" class="btn primary">ÚJ FÁZIS / RESET</button>
-        </div>
-
-        <div id="dmOverrides" style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;"></div>
-
-        <div style="margin-top:12px;border-top:1px solid rgba(0,0,0,0.08);padding-top:12px;">
-          <div style="font-weight:800;margin-bottom:6px;">Színek (előzetes kiosztás / zárolás)</div>
-          <div style="opacity:.7;font-size:12px;margin-bottom:10px;">
-            Ha egy színt zárolsz és adsz join-kódot, a játékos csak a megfelelő kóddal tudja felvenni azt a színt.
+          <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;">
+            <input id="dmDefault" placeholder="Alapidő (mm:ss) pl. 02:00" />
+            <button id="dmApply" class="btn primary">ÚJ FÁZIS / RESET</button>
           </div>
-          <div id="dmSlots" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;"></div>
-        </div>
-      `;
-      ui.mainWrap.appendChild(dmWrap);
+
+          <div id="dmOverrides" style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;"></div>
+
+          <div style="margin-top:12px;border-top:1px solid rgba(0,0,0,0.08);padding-top:12px;">
+            <div style="font-weight:800;margin-bottom:6px;">Színek (előzetes kiosztás / zárolás)</div>
+            <div id="dmSlots" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;"></div>
+          </div>
+          <div id="dmMsg" class="msg"></div>
+        `;
+        ui.mainWrap.appendChild(dmWrap);
+      }
     }
+
 
     if (!overlay) {
       overlay = document.createElement("div");
@@ -290,15 +303,7 @@
 
     // Wire buttons
     const btnCombat = gridWrap.querySelector("#btnCombat");
-    const btnStop = gridWrap.querySelector("#btnStop");
     const grid = gridWrap.querySelector("#grid");
-
-    btnStop.onclick = async () => {
-      // nincs külön stop RPC; a "pass_to_color" szabályaihoz igazodunk.
-      // STOP-ot egyszerűen úgy csináljuk: átadjuk saját magunknak? Nem jó.
-      // Ezért STOP-ot itt nem implementáljuk (SQL-ben nincs), csak DM fázis reset állítja le.
-      alert("STOP funkció nincs bekötve (a jelenlegi SQL/RPC készletben nincs stop). Ha kell, írok hozzá RPC-t.");
-    };
 
     btnCombat.onclick = async () => {
       try {
@@ -321,51 +326,68 @@
       }
     };
 
-    if (IS_DM) {
-     dmWrap.classList.remove("hidden");
-     dmWrap.style.display = "block";
-   
-     const dmDefault =
-       dmWrap.querySelector("#defaultTimeInput") || dmWrap.querySelector("#dmDefault");
-     const dmApply =
-       dmWrap.querySelector("#btnNewPhase") || dmWrap.querySelector("#dmApply");
-   
-     dmApply.onclick = async () => {
-       try {
-         const def = parseMMSS(dmDefault.value);
-         if (def == null) throw new Error("Érvénytelen alapidő. Formátum: mm:ss (pl. 02:00).");
-   
-         // overrides from index.html grid (overrideGrid) OR generated dmOverrides
-         const overrides = {};
-         const ovWrap =
-           dmWrap.querySelector("#overrideGrid") || dmWrap.querySelector("#dmOverrides");
-   
-         if (ovWrap) {
-           for (const card of ovWrap.querySelectorAll("[data-color]")) {
-             const color = card.getAttribute("data-color");
-             const inp = card.querySelector("input");
-             const sec = parseMMSS(inp?.value);
-             if (sec != null) overrides[color] = String(sec);
-           }
-         }
-   
-         await sb.rpc("dm_new_phase", {
-           p_code: roomCode,
-           p_dm_token: DM_TOKEN,
-           p_default_seconds: def,
-           p_overrides: overrides
-         });
-   
-         // optional UI message if HTML has dmMsg
-         const dmMsg = dmWrap.querySelector("#dmMsg");
-         if (dmMsg) dmMsg.textContent = "Új fázis elindítva.";
-   
-         dmDefault.blur();
-       } catch (e) {
-         alertError(e);
-       }
-     };
-   } 
+        // DM panel
+    if (IS_DM && dmWrap) {
+      // ha index.html-ben dmCard van, ott hidden class van használva
+      dmWrap.classList.remove("hidden");
+      dmWrap.style.display = ""; // fallback kompatibilitás
+
+      const dmDefault =
+        dmWrap.querySelector("#defaultTimeInput") ||
+        dmWrap.querySelector("#dmDefault");
+
+      const dmApply =
+        dmWrap.querySelector("#btnNewPhase") ||
+        dmWrap.querySelector("#dmApply");
+
+      const dmMsg =
+        dmWrap.querySelector("#dmMsg") ||
+        dmWrap.querySelector("#dmMsg");
+
+      if (dmApply) {
+        dmApply.onclick = async () => {
+          try {
+            const def = parseMMSS(dmDefault?.value);
+            if (def == null) throw new Error("Érvénytelen alapidő. Formátum: mm:ss (pl. 02:00).");
+
+            // overrides összegyűjtése (index.html: #overrideGrid, fallback: #dmOverrides)
+            const overrides = {};
+            const ovWrap =
+              dmWrap.querySelector("#overrideGrid") ||
+              dmWrap.querySelector("#dmOverrides");
+
+            for (const [color, sec] of Object.entries(dmOverrideDraft)) {
+              overrides[color] = String(sec);
+            }
+
+
+            if (ovWrap) {
+              for (const card of ovWrap.querySelectorAll("[data-color]")) {
+                const color = card.getAttribute("data-color");
+                const inp = card.querySelector("input");
+                const sec = parseMMSS(inp?.value);
+                if (sec != null) overrides[color] = String(sec);
+              }
+            }
+
+            const { error } = await sb.rpc("dm_new_phase", {
+              p_code: roomCode,
+              p_dm_token: DM_TOKEN,
+              p_default_seconds: def,
+              p_overrides: overrides
+            });
+            if (error) throw error;
+
+            if (dmMsg) dmMsg.textContent = "Új fázis elindítva.";
+            dmDefault?.blur();
+          } catch (e) {
+            alertError(e);
+          }
+        };
+      }
+    }
+
+
 
 
     // Create/Join buttons from your header
@@ -589,6 +611,17 @@
 
   // ========= RENDER =========
   function render() {
+    // DM input fókusz-védelem (különben a tick újraépíti a DOM-ot és „kidob”)
+    const ae = document.activeElement;
+    const dmEditing =
+      IS_DM &&
+      ae &&
+      dmWrap &&
+      dmWrap.contains(ae) &&
+      ["INPUT", "SELECT", "TEXTAREA"].includes(ae.tagName);
+
+    if (dmEditing || DM_INPUT_ACTIVE) return;
+
     ensureUI();
 
     // Header label
@@ -598,6 +631,18 @@
     if (el.joinCard) {
       // if no ?room param -> show join; else hide
       el.joinCard.classList.toggle("hidden", !!ROOM_CODE);
+    }
+    // ====== KEZDŐKÉPERNYŐ LOGIKA ======
+    const hasRoom = !!(roomCode || ROOM_CODE);
+
+    // Create room: csak akkor látszódjon, ha NINCS szoba kiválasztva
+    if (el.btnCreateRoom) {
+      el.btnCreateRoom.classList.toggle("hidden", hasRoom);
+    }
+
+    // Játékosok + HARC panel: csak akkor látszódjon, ha VAN szoba kiválasztva
+    if (typeof gridWrap !== "undefined" && gridWrap) {
+      gridWrap.classList.toggle("hidden", !hasRoom);
     }
 
     // Subline
@@ -619,7 +664,11 @@
       overlay.style.display = "block";
       const init = players.find(p => p.id === roomState.combat_initiator_player_id);
       const targ = players.find(p => p.id === roomState.combat_target_player_id);
-      ovTitle.textContent = `HARC: ${init?.color || "?"} ↔ ${targ?.color || "?"}`;
+      const labelOf = (c) => {
+        const s = colorSlots.find(x => x.color === c);
+        return (s?.display_name && s.display_name.trim()) ? s.display_name : c;
+      };
+      ovTitle.textContent = `HARC: ${init ? labelOf(init.color) : "?"} ↔ ${targ ? labelOf(targ.color) : "?"}`;
       ovTimer.textContent = formatMMSS(combatRemaining() ?? 60);
       ovEnd.disabled = !canEndCombat();
       ovEnd.style.opacity = ovEnd.disabled ? "0.5" : "1";
@@ -671,7 +720,7 @@
 
       const name = document.createElement("div");
       name.style.fontWeight = "900";
-      name.textContent = cs.color;
+      name.textContent = (cs.display_name && cs.display_name.trim()) ? cs.display_name : cs.color;
       top.appendChild(name);
 
       const badge = document.createElement("div");
@@ -727,8 +776,10 @@
     }
 
     // DM panel: overrides + slot locks
-    if (IS_DM) {
-      const ovWrap = dmWrap.querySelector("#dmOverrides");
+    if (IS_DM && !dmEditing) {
+      const ovWrap =
+        dmWrap.querySelector("#overrideGrid") ||
+        dmWrap.querySelector("#dmOverrides");
       ovWrap.innerHTML = "";
       for (const cs of shownSlots) {
         const takenBy = players.find(p => p.color === cs.color);
@@ -768,7 +819,43 @@
         const inp = document.createElement("input");
         inp.placeholder = "egyéni idő (mm:ss)";
         inp.style.width = "140px";
+
+        inp.addEventListener("focus", () => {
+          DM_INPUT_ACTIVE = true;
+        });
+
+        inp.addEventListener("blur", () => {
+          DM_INPUT_ACTIVE = false;
+
+          const sec = parseMMSS(inp.value);
+          if (sec == null) {
+            delete dmOverrideDraft[cs.color];
+            inp.value = "";
+          } else {
+            dmOverrideDraft[cs.color] = sec;
+            inp.value = formatMMSS(sec);
+          }
+        });
+
+        // korábbi érték visszatöltése
+        if (dmOverrideDraft[cs.color] != null) {
+          inp.value = formatMMSS(dmOverrideDraft[cs.color]);
+        }
+
+        // csak blur-re mentünk
+        inp.addEventListener("blur", () => {
+          const sec = parseMMSS(inp.value);
+          if (sec == null) {
+            delete dmOverrideDraft[cs.color];
+            inp.value = "";
+          } else {
+            dmOverrideDraft[cs.color] = sec;
+            inp.value = formatMMSS(sec);
+          }
+        });
+
         row.appendChild(inp);
+
 
         box.appendChild(row);
 
@@ -781,88 +868,151 @@
         ovWrap.appendChild(box);
       }
 
-      const slotsWrap = dmWrap.querySelector("#dmSlots");
+      const slotsWrap =
+        dmWrap.querySelector("#slotsGrid") ||
+        dmWrap.querySelector("#dmSlots");
       slotsWrap.innerHTML = "";
-      for (const cs of shownSlots) {
-        const takenBy = players.find(p => p.color === cs.color);
 
-        const box = document.createElement("div");
-        box.style.border = "1px solid rgba(0,0,0,0.08)";
-        box.style.borderRadius = "12px";
-        box.style.padding = "10px";
-        box.style.display = "grid";
-        box.style.gap = "8px";
+      // ===== A) SZÍNCSERE (két dropdown + gomb) =====
+      {
+        const occupied = [...new Set(players.map(p => p.color))].sort();
+        if (occupied.length >= 2) {
+          const box = document.createElement("div");
+          box.style.display = "grid";
+          box.style.gridTemplateColumns = "1fr 1fr auto";
+          box.style.gap = "10px";
+          box.style.alignItems = "center";
+          box.style.marginBottom = "14px";
 
-        const row = document.createElement("div");
-        row.style.display = "flex";
-        row.style.alignItems = "center";
-        row.style.justifyContent = "space-between";
-        row.style.gap = "10px";
+          const selA = document.createElement("select");
+          const selB = document.createElement("select");
 
-        const left = document.createElement("div");
-        left.style.display = "flex";
-        left.style.alignItems = "center";
-        left.style.gap = "8px";
+          const fill = (sel) => {
+            sel.innerHTML = "";
+            for (const c of occupied) {
+              const o = document.createElement("option");
+              o.value = c;
+              o.textContent = ((colorSlots.find(s => s.color === c)?.display_name) || c);
+              sel.appendChild(o);
+            }
+          };
+          fill(selA); fill(selB);
+          selA.value = occupied[0];
+          selB.value = occupied[1];
 
-        const sw = document.createElement("div");
-        sw.style.width = "14px";
-        sw.style.height = "14px";
-        sw.style.borderRadius = "6px";
-        sw.style.background = cs.color;
-        left.appendChild(sw);
+          const btn = document.createElement("button");
+          btn.className = "btn primary";
+          btn.textContent = "CSERE";
 
-        const label = document.createElement("div");
-        label.style.fontWeight = "900";
-        label.textContent = cs.color;
-        left.appendChild(label);
+          btn.onclick = async () => {
+            try {
+              // csak ha nincs futó timer és nincs combat
+              if (roomState?.combat_active) throw new Error("HARC aktív, nem lehet cserélni.");
+              if (roomState?.active_started_at) throw new Error("Timer fut, nem lehet cserélni (STOP előbb).");
 
-        row.appendChild(left);
+              const a = selA.value;
+              const b = selB.value;
+              if (!a || !b || a === b) return;
 
-        const status = document.createElement("div");
-        status.style.fontSize = "12px";
-        status.style.opacity = ".75";
-        status.textContent = takenBy ? "FOGLALT" : (cs.locked ? "ZÁROLT" : "SZABAD");
-        row.appendChild(status);
+              const { error } = await sb.rpc("dm_swap_colors", {
+                p_code: roomCode,
+                p_dm_token: DM_TOKEN,
+                p_color_a: a,
+                p_color_b: b
+              });
+              if (error) throw error;
 
-        box.appendChild(row);
+              await loadAll();
+              render();
+            } catch (e) {
+              alertError(e);
+            }
+          };
 
-        const row2 = document.createElement("div");
-        row2.style.display = "grid";
-        row2.style.gridTemplateColumns = "auto 1fr";
-        row2.style.gap = "8px";
-        row2.style.alignItems = "center";
+          box.appendChild(selA);
+          box.appendChild(selB);
+          box.appendChild(btn);
 
-        const chk = document.createElement("input");
-        chk.type = "checkbox";
-        chk.checked = !!cs.locked;
-        row2.appendChild(chk);
+          const hint = document.createElement("div");
+          hint.style.gridColumn = "1 / -1";
+          hint.style.fontSize = "12px";
+          hint.style.opacity = ".75";
+          hint.textContent = "Színcsere csak foglalt színek között.";
+          box.appendChild(hint);
 
-        const join = document.createElement("input");
-        join.placeholder = "join-kód (opcionális)";
-        row2.appendChild(join);
+          slotsWrap.appendChild(box);
+        }
+      }
 
-        box.appendChild(row2);
+      // ===== SZÍNNEVEK (DM felülírja red/blue...) =====
+      {
+        const title = document.createElement("div");
+        title.style.fontWeight = "800";
+        title.style.margin = "30px 100px 8px";
+        title.textContent = "Színnevek:";
+        slotsWrap.appendChild(title);
 
-        const btn = document.createElement("button");
-        btn.className = "btn";
-        btn.textContent = "MENTÉS";
-        btn.onclick = async () => {
-          try {
-            await sb.rpc("dm_set_color_slot", {
-              p_code: roomCode,
-              p_dm_token: DM_TOKEN,
-              p_color: cs.color,
-              p_locked: chk.checked,
-              p_join_code: (join.value || "").trim() || null
-            });
-            join.value = "";
-          } catch (e) {
-            alertError(e);
-          }
-        };
-        box.appendChild(btn);
+        for (const cs of shownSlots) {
+          const row = document.createElement("div");
+          row.style.display = "grid";
 
-        slotsWrap.appendChild(box);
+          // 2 oszlop, 2 sor: balra a szín (két sor magas), jobbra input, alatta mentés
+          row.style.gridTemplateColumns = "50px 140px";
+          row.style.gridTemplateRows = "auto auto";
+          row.style.gap = "10px";
+          row.style.alignItems = "center";
+          row.style.marginBottom = "10px";
+
+          const left = document.createElement("div");
+          left.style.fontWeight = "800";
+          left.textContent = cs.color;
+          left.style.gridRow = "1 / span 2"; // két soron át
+          left.style.alignSelf = "center";
+
+          const inp = document.createElement("input");
+          inp.type = "text";
+          inp.placeholder = "pl. András";
+          inp.value = (dmNameDraft[cs.color] ?? cs.display_name ?? "");
+          inp.addEventListener("input", () => {
+            dmNameDraft[cs.color] = inp.value;
+          });
+          inp.style.width = "140px";  
+
+          const btn = document.createElement("button");
+          btn.className = "btn";
+          btn.textContent = "MENTÉS";
+          btn.style.justifySelf = "start";     // ne lógjon a jobb szélre
+          btn.style.width = "140px";           // kényelmesebb kattintás
+          btn.style.marginTop = "2px";
+
+          btn.onclick = async () => {
+            try {
+              const { error } = await sb.rpc("dm_set_color_name", {
+                p_code: roomCode,
+                p_dm_token: DM_TOKEN,
+                p_color: cs.color,
+                p_display_name: inp.value
+              });
+
+              if (error) {
+                console.error("dm_set_color_name error:", error);
+                alert(`Mentési hiba: ${error.message || JSON.stringify(error)}`);
+                return;
+              }
+
+              delete dmNameDraft[cs.color];
+              await loadAll();
+              render();
+            } catch (e) {
+              alertError(e);
+            }
+          };
+
+          row.appendChild(left);
+          row.appendChild(inp);
+          row.appendChild(btn);
+          slotsWrap.appendChild(row);
+        }
       }
     }
   }
@@ -894,13 +1044,21 @@
       ensureUI();
       await ensureSession();
 
-      // If no room param, show join card and stop
+      // If no room param, show join card and hide game UI
       if (!ROOM_CODE) {
         if (el.joinCard) el.joinCard.classList.remove("hidden");
         showRoomLabel("Nincs szoba kiválasztva.");
+
+        // rejtsük el a játék UI-t
+        if (gridWrap) gridWrap.style.display = "none";
+        if (dmWrap) dmWrap.style.display = "none";
+        if (overlay) overlay.style.display = "none";
+
+        // create gomb itt maradjon, szobán belül eltűnik (lásd lent)
         startTick();
         return;
       }
+
 
       // Resolve roomId by code (rooms table is not directly selectable)
       await resolveRoom(ROOM_CODE);
