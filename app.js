@@ -110,6 +110,31 @@
     mainWrap: document.querySelector("main.wrap") || document.body
   };
 
+  // én tettem *ide*
+  let roomLocked = false;
+
+   btnLockRoom.onclick = async () => {
+     const wantLock = !roomLocked;
+   
+     const { error } = await sb.rpc("dm_set_room_lock", {
+       p_code: roomCode,
+       p_dm_token: DM_TOKEN,
+       p_locked: wantLock
+     });
+   
+     if (error) {
+       alert("Hiba: " + error.message);
+       return;
+     }
+   
+     roomLocked = wantLock;
+     btnLockRoom.textContent = wantLock
+       ? "Új belépések ENGEDÉLYEZÉSE"
+       : "Új belépések TILTÁSA";
+   };
+
+
+   
   // dynamic sections
   let gridWrap, dmWrap, overlay;
 
